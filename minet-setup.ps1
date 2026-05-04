@@ -18,14 +18,12 @@ Write-Host "Preparing..."
 if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
     Write-Host "Installing curl via winget..." -ForegroundColor Yellow
     winget install --id cURL.cURL -e --silent
-    # Lam moi PATH trong session hien tai
     $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
                 [System.Environment]::GetEnvironmentVariable("PATH", "User")
 }
 
 function UrlEncode($str) {
     $encoded = [System.Uri]::EscapeDataString($str)
-    # EscapeDataString da xu ly @, +, % => khop voi sed trong bash
     return $encoded
 }
 
