@@ -7,7 +7,6 @@ Write-Host ""
 Write-Host "===== Minet Mining Setup =====" -ForegroundColor Cyan
 Write-Host ""
 
-# Nhap email
 $EM = Read-Host "Email"
 if ([string]::IsNullOrWhiteSpace($EM)) {
     Write-Host "Email required." -ForegroundColor Red
@@ -16,7 +15,6 @@ if ([string]::IsNullOrWhiteSpace($EM)) {
 
 Write-Host "Preparing..."
 
-# Kiem tra va cai dat curl neu chua co (dung winget)
 if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
     Write-Host "Installing curl via winget..." -ForegroundColor Yellow
     winget install --id cURL.cURL -e --silent
@@ -25,7 +23,6 @@ if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
                 [System.Environment]::GetEnvironmentVariable("PATH", "User")
 }
 
-# URL-encode email
 function UrlEncode($str) {
     $encoded = [System.Uri]::EscapeDataString($str)
     # EscapeDataString da xu ly @, +, % => khop voi sed trong bash
@@ -34,7 +31,6 @@ function UrlEncode($str) {
 
 $EE = UrlEncode $EM
 
-# Lay dia chi IP cong khai
 try {
     $CI = (Invoke-RestMethod -Uri "https://api.ipify.org" -TimeoutSec 10).Trim()
 } catch {
@@ -49,7 +45,6 @@ if ([string]::IsNullOrWhiteSpace($CI)) {
 
 $EI = [System.Uri]::EscapeDataString($CI)
 
-# Tai ve va chay script setup
 $setupUrl = "$BU/api/minecoin/setup?email=$EE&ip=$EI&mode=dashboard"
 
 try {
