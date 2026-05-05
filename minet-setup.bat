@@ -12,48 +12,43 @@ set "BU=https://dashboard.minet.vn"
 set "WD=C:\MinetMining"
 
 echo.
-echo ===== Minet Mining Setup (Windows Native) =====
+echo ===== Minet Mining Setup (Fixed Path) =====
 echo.
 
 :: 2. Nhap Email
 set /p EM="Email: "
 if "!EM!"=="" (echo Email required. & pause & exit /b 1)
 
-echo Preparing...
+echo [INFO] Dang chuan bi thu muc...
+if not exist "%WD%" mkdir "%WD%"
+cd /d "%WD%"
 
-:: 3. Lay IP va Encode (Tuong duong sed trong Linux)
+:: 3. Lay IP va Encode
 for /f "delims=" %%I in ('curl -sf https://api.ipify.org') do set CI=%%I
-if "!CI!"=="" (echo Network error. & pause & exit /b 1)
-
 set EE=!EM:@=%%40!
 set EE=!EE:+=%%2B!
 set EI=!CI::=%%3A!
 
-:: 4. Tao thu muc va tai truc tiep script setup cua Windows
-if not exist "%WD%" mkdir "%WD%"
-cd /d "%WD%"
-
-:: Thay vi dung | sh (khong co tren Windows), ta tai file setup va chay truc tiep
-:: Server minet thuong se tra ve file config hoac lenh tai frpc.exe
-set "SETUP_URL=!BU!/api/minecoin/setup?email=!EE!^&ip=!EI!^&mode=dashboard"
-
-echo [INFO] Dang ket noi server...
-curl -fsSL "!SETUP_URL!" -o "minet_task.sh"
-
-:: 5. Vi ban khong muon dung Git Bash, minh se tu thuc hien logic "Setup" cua file .sh do
-:: Logic chung cua Minet: Tai frpc -> Ghi file config -> Chay
-echo [INFO] Dang thiet lap he thong...
-
+:: 4. Tai file tu GitHub (Dung TLS 1.2 de tranh loi ket noi)
+echo [INFO] Dang tai tunnel client...
 powershell -Command "^
-    $url = 'https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_windows_amd64.zip'; ^
-    Invoke-WebRequest -Uri $url -OutFile 'f.zip'; ^
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; ^
+    Invoke-WebRequest -Uri 'https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_windows_amd64.zip' -OutFile 'f.zip'; ^
     tar -xf f.zip; ^
-    move frp_*\frpc.exe minet.exe; ^
-    del f.zip; ^
-    rd /s /q frp_*; ^
-" >nul 2>&1
+    $path = (Get-ChildItem -Recurse -Filter 'frpc.exe').FullName; ^
+    if ($path) { Copy-Item $path -Destination '.\minet.exe' -Force } else { Write-Error 'Khong tim thay frpc.exe' }; ^
+    Remove-Item f.zip; ^
+    Get-ChildItem -Directory -Filter 'frp_*' | Remove-Item -Recurse -Force; ^
+"
 
-:: 6. Tao file config (Giong het ben Linux thuc hien)
+:: 5. Kiem tra xem file minet.exe da ton tai chua
+if not exist "minet.exe" (
+    echo [ERROR] Tai file that bai hoặc bị Antivirus xoa.
+    pause
+    exit /b 1
+)
+
+:: 6. Tao file config
 (
 echo [common]
 echo server_addr = dashboard.minet.vn
@@ -67,7 +62,7 @@ echo local_port = 3333
 echo remote_port = 0
 ) > config.ini
 
-echo [DONE] Hoan tat!
+echo [DONE] Setup thanh cong!
 echo Dang khoi chay miner...
 start minet.exe -c config.ini
 pause
