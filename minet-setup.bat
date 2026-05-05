@@ -1,53 +1,51 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: 1. Quyen Admin
+:: 1. Quyền Admin
 net session >nul 2>&1
 if errorlevel 1 (
     powershell -Command "Start-Process cmd -ArgumentList '/c \"%~f0\"' -Verb RunAs"
     exit /b
 )
 
-set "WD=C:\MinetMining"
+set "BU=https://dashboard.minet.vn"
+set "WD=C:\Minet_Mining"
+
+echo.
+echo ===== Minet Mining Setup (Windows CMD) =====
+echo.
+
+:: 2. Nhập Email
+set /p EM="Email: "
+if "!EM!"=="" (echo Email required. & pause & exit /b 1)
+
+echo Preparing...
+
+:: 3. Lấy IP và Encode Email/IP (Thay cho sed)
+for /f "delims=" %%I in ('curl -sf https://api.ipify.org') do set "CI=%%I"
+if "!CI!"=="" (echo Network error. & pause & exit /b 1)
+
+set "EE=!EM:@=%%40!"
+set "EE=!EE:+=%%2B!"
+set "EI=!CI::=%%3A!"
+
+:: 4. Tạo thư mục làm việc
 if not exist "%WD%" mkdir "%WD%"
 cd /d "%WD%"
 
-echo.
-echo ===== Minet Mining Setup (Direct Download) =====
-echo.
-
-:: 2. Nhap Email
-set /p EM="Email: "
-if "!EM!"=="" exit /b 1
-
-:: 3. Tai file zip tu GitHub bang CURL (Cực kỳ ổn định)
-echo [1/3] Dang tai file tu GitHub...
+:: 5. Tải bản frp cho Windows (Đúng chuẩn thay vì chạy | sh của Linux)
+echo [1/2] Downloading tunnel...
 curl -L -o frp.zip https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_windows_amd64.zip
 
-:: 4. Giai nen bang TAR (Co san trong Windows)
-echo [2/3] Dang giai nen...
+:: 6. Giải nén và chạy ngay tại chỗ (Không đổi tên, không minet.exe gì hết)
+echo [2/2] Extracting...
 tar -xf frp.zip
+del /f /q frp.zip
 
-:: 5. Tim va doi ten file bang lenh CMD thuan tuy (Khong dung PowerShell nua)
-echo [3/3] Dang thiet lap file thuc thi...
-for /r %%i in (frpc.exe) do (
-    copy /y "%%i" "minet.exe" >nul
-)
+:: Nhảy vào thư mục vừa giải nén
+for /d %%d in (frp_*) do cd /d "%%d"
 
-:: Xoa file rac
-del /f /q frp.zip >nul
-for /d %%d in (frp_*) do rd /s /q "%%d" >nul
-
-:: 6. Kiem tra xem co file chua
-if not exist "minet.exe" (
-    echo [ERROR] Van deo co file minet.exe! 
-    echo Co the Antivirus da xoa no ngay khi vua giai nen. 
-    echo Hay tat Real-time Protection cua Windows Defender di!
-    pause
-    exit /b 1
-)
-
-:: 7. Tao config
+:: 7. Tạo config đúng chuẩn
 (
 echo [common]
 echo server_addr = dashboard.minet.vn
@@ -59,10 +57,15 @@ echo type = tcp
 echo local_ip = 127.0.0.1
 echo local_port = 3333
 echo remote_port = 0
-) > config.ini
+) > frpc.ini
 
 echo.
-echo [DONE] Da thay file minet.exe! Chuan bi chay...
+echo [DONE] Hoan tat! Dang khoi chay frpc...
+echo ---------------------------------------
 timeout /t 2 >nul
-start minet.exe -c config.ini
+
+:: Chạy đúng file frpc.exe của nó
+start frpc.exe -c frpc.ini
+
+echo [INFO] Neu thay bang den frpc hien len la thanh cong.
 pause
