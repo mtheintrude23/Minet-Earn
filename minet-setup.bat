@@ -10,62 +10,39 @@ if errorlevel 1 (
 
 set "BU=https://dashboard.minet.vn"
 set "WD=C:\Minet_Mining"
-
-echo.
-echo ===== Minet Mining Setup (Windows CMD) =====
-echo.
+if not exist "%WD%" mkdir "%WD%"
+cd /d "%WD%"
 
 :: 2. Nhập Email
 set /p EM="Email: "
-if "!EM!"=="" (echo Email required. & pause & exit /b 1)
+if "!EM!"=="" exit /b 1
 
-echo Preparing...
+echo [INFO] Dang lay thong so tu Server Minet...
 
-:: 3. Lấy IP và Encode Email/IP (Thay cho sed)
+:: 3. Lấy IP
 for /f "delims=" %%I in ('curl -sf https://api.ipify.org') do set "CI=%%I"
-if "!CI!"=="" (echo Network error. & pause & exit /b 1)
-
 set "EE=!EM:@=%%40!"
 set "EE=!EE:+=%%2B!"
 set "EI=!CI::=%%3A!"
 
-:: 4. Tạo thư mục làm việc
-if not exist "%WD%" mkdir "%WD%"
-cd /d "%WD%"
+:: 4. Tải file setup gốc của server về (Thay vì chạy thẳng, ta lưu lại để xem)
+curl -fsSL "!BU!/api/minecoin/setup?email=!EE!&ip=!EI!&mode=dashboard" -o "server_script.txt"
 
-:: 5. Tải bản frp cho Windows (Đúng chuẩn thay vì chạy | sh của Linux)
-echo [1/2] Downloading tunnel...
-curl -L -o frp.zip https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_windows_amd64.zip
-
-:: 6. Giải nén và chạy ngay tại chỗ (Không đổi tên, không minet.exe gì hết)
-echo [2/2] Extracting...
-tar -xf frp.zip
-del /f /q frp.zip
-
-:: Nhảy vào thư mục vừa giải nén
-for /d %%d in (frp_*) do cd /d "%%d"
-
-:: 7. Tạo config đúng chuẩn
-(
-echo [common]
-echo server_addr = dashboard.minet.vn
-echo server_port = 7000
-echo token = minet2024
-echo.
-echo [mine-!EM!]
-echo type = tcp
-echo local_ip = 127.0.0.1
-echo local_port = 3333
-echo remote_port = 0
-) > frpc.ini
-
-echo.
-echo [DONE] Hoan tat! Dang khoi chay frpc...
+echo [INFO] Da tai xong thong so.
 echo ---------------------------------------
-timeout /t 2 >nul
+:: Hien thi noi dung server tra ve de ban kiem tra xem co dung config ko
+type server_script.txt
+echo ---------------------------------------
 
-:: Chạy đúng file frpc.exe của nó
-start frpc.exe -c frpc.ini
+:: 5. Tai frpc neu chua co
+if not exist "frpc.exe" (
+    echo [INFO] Dang tai frpc...
+    curl -L -o f.zip https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_windows_amd64.zip
+    tar -xf f.zip
+    for /r %%i in (frpc.exe) do copy /y "%%i" "frpc.exe" >nul
+    del f.zip
+)
 
-echo [INFO] Neu thay bang den frpc hien len la thanh cong.
+echo.
+echo [DONE] Bay gio ban hay copy cai doan config trong 'server_script.txt' vao file 'frpc.ini' roi chay nhe.
 pause
