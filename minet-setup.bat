@@ -6,7 +6,7 @@ set BU=https://dashboard.minet.vn
 net session >nul 2>&1
 if errorlevel 1 (
     echo [INFO] Can quyen Administrator. Dang yeu cau cap quyen...
-    powershell -Command "Start-Process cmd -ArgumentList '/c, \"%~f0\"' -Verb RunAs"
+    powershell -Command "Start-Process cmd -ArgumentList '/c \"%~f0\"' -Verb RunAs"
     exit /b
 )
 
@@ -39,41 +39,32 @@ set EE=!EE:+=%%2B!
 set EE=!EE: =%%20!
 set EI=!CI::=%%3A!
 
-curl -fsSL "!BU!/api/minecoin/setup?email=!EE!&ip=!EI!&mode=dashboard" -o "%TEMP%\minet_setup.sh"
+set SETUP_URL=!BU!/api/minecoin/setup?email=!EE!^&ip=!EI!^&mode=dashboard
 
-if not exist "%TEMP%\minet_setup.sh" (
-    echo [ERROR] Khong tai duoc script tu server.
-    pause
-    exit /b 1
-)
-
-:: Kiem tra WSL
-echo [INFO] Kiem tra WSL...
-wsl.exe -e bash -c "echo wsl_ok" >"%TEMP%\wsl_check.txt" 2>nul
-findstr "wsl_ok" "%TEMP%\wsl_check.txt" >nul 2>&1
-if not errorlevel 1 (
-    echo [INFO] Dung WSL bash root...
-    wsl.exe wslpath -a "%TEMP%\minet_setup.sh" >"%TEMP%\wsl_path.txt" 2>nul
-    set /p WSL_PATH=<"%TEMP%\wsl_path.txt"
-    wsl.exe -u root bash "!WSL_PATH!"
-    goto :done
-)
-
-echo [WARN] WSL khong kha dung, thu Git bash...
-
-:: Fallback Git bash
+:: Tim Git bash
 set BASH_EXE=
-if exist "C:\Program Files\Git\bin\bash.exe" set BASH_EXE=C:\Program Files\Git\bin\bash.exe
+if exist "C:\Program Files\Git\bin\bash.exe"     set BASH_EXE=C:\Program Files\Git\bin\bash.exe
 if exist "C:\Program Files (x86)\Git\bin\bash.exe" set BASH_EXE=C:\Program Files (x86)\Git\bin\bash.exe
 
 if "!BASH_EXE!"=="" (
-    echo [ERROR] Khong tim thay bash. Cai Git for Windows hoac kich hoat WSL.
+    echo [ERROR] Khong tim thay Git bash.
+    echo Vui long cai Git for Windows: https://git-scm.com/download/win
     pause
     exit /b 1
 )
 
-echo [INFO] Dung Git bash: !BASH_EXE!
-"!BASH_EXE!" "%TEMP%\minet_setup.sh"
+echo [INFO] Dung bash: !BASH_EXE!
+
+:: Tai script
+curl -fsSL "!SETUP_URL!" -o "%TEMP%\minet_setup.sh"
+if not exist "%TEMP%\minet_setup.sh" (
+    echo [ERROR] Khong tai duoc script.
+    pause
+    exit /b 1
+)
+
+:: Chay bang Git bash - da co quyen Admin nen ghi duoc /opt /tmp
+"!BASH_EXE!" -c "bash '%TEMP:\=/%/minet_setup.sh'"
 
 :done
 echo.
