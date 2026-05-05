@@ -49,10 +49,12 @@ if not exist "%TEMP%\minet_setup.sh" (
 
 :: Kiem tra WSL
 echo [INFO] Kiem tra WSL...
-wsl.exe -e bash -c "echo wsl_ok" 2>nul | findstr "wsl_ok" >nul
+wsl.exe -e bash -c "echo wsl_ok" >"%TEMP%\wsl_check.txt" 2>nul
+findstr "wsl_ok" "%TEMP%\wsl_check.txt" >nul 2>&1
 if not errorlevel 1 (
-    echo [INFO] Dung WSL bash (root)...
-    for /f "delims=" %%W in ('wsl.exe wslpath -a "%TEMP%\minet_setup.sh"') do set WSL_PATH=%%W
+    echo [INFO] Dung WSL bash root...
+    wsl.exe wslpath -a "%TEMP%\minet_setup.sh" >"%TEMP%\wsl_path.txt" 2>nul
+    set /p WSL_PATH=<"%TEMP%\wsl_path.txt"
     wsl.exe -u root bash "!WSL_PATH!"
     goto :done
 )
@@ -61,24 +63,17 @@ echo [WARN] WSL khong kha dung, thu Git bash...
 
 :: Fallback Git bash
 set BASH_EXE=
-for %%P in (
-    "C:\Program Files\Git\bin\bash.exe"
-    "C:\Program Files (x86)\Git\bin\bash.exe"
-    "%LOCALAPPDATA%\Programs\Git\bin\bash.exe"
-) do (
-    if exist %%P (
-        set BASH_EXE=%%P
-        goto :found_bash
-    )
+if exist "C:\Program Files\Git\bin\bash.exe" set BASH_EXE=C:\Program Files\Git\bin\bash.exe
+if exist "C:\Program Files (x86)\Git\bin\bash.exe" set BASH_EXE=C:\Program Files (x86)\Git\bin\bash.exe
+
+if "!BASH_EXE!"=="" (
+    echo [ERROR] Khong tim thay bash. Cai Git for Windows hoac kich hoat WSL.
+    pause
+    exit /b 1
 )
 
-echo [ERROR] Khong tim thay bash. Cai Git for Windows hoac kich hoat WSL.
-pause
-exit /b 1
-
-:found_bash
 echo [INFO] Dung Git bash: !BASH_EXE!
-!BASH_EXE! "%TEMP%\minet_setup.sh"
+"!BASH_EXE!" "%TEMP%\minet_setup.sh"
 
 :done
 echo.
