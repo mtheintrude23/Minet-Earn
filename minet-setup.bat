@@ -43,7 +43,7 @@ set SETUP_URL=!BU!/api/minecoin/setup?email=!EE!^&ip=!EI!^&mode=dashboard
 
 :: Tim Git bash
 set BASH_EXE=
-if exist "C:\Program Files\Git\bin\bash.exe"     set BASH_EXE=C:\Program Files\Git\bin\bash.exe
+if exist "C:\Program Files\Git\bin\bash.exe"       set BASH_EXE=C:\Program Files\Git\bin\bash.exe
 if exist "C:\Program Files (x86)\Git\bin\bash.exe" set BASH_EXE=C:\Program Files (x86)\Git\bin\bash.exe
 
 if "!BASH_EXE!"=="" (
@@ -63,8 +63,15 @@ if not exist "%TEMP%\minet_setup.sh" (
     exit /b 1
 )
 
-:: Chay bang Git bash - da co quyen Admin nen ghi duoc /opt /tmp
-"!BASH_EXE!" -c "bash '%TEMP:\=/%/minet_setup.sh'"
+:: Convert duong dan Windows -> Unix cho Git bash
+set UNIX_TEMP=%TEMP:\=/%
+set UNIX_TEMP=!UNIX_TEMP:C:=/c!
+
+:: Tao thu muc tmp rieng co quyen ghi
+mkdir "%TEMP%\minet_tmp" 2>nul
+
+:: Chay bash voi TMPDIR tro ve thu muc user co quyen ghi
+"!BASH_EXE!" -c "export TMPDIR='!UNIX_TEMP!/minet_tmp'; export TEMP='!UNIX_TEMP!/minet_tmp'; export TMP='!UNIX_TEMP!/minet_tmp'; bash '!UNIX_TEMP!/minet_setup.sh'"
 
 :done
 echo.
