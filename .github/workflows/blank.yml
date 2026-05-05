@@ -1,0 +1,46 @@
+name: Build MinetSetup.exe
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:   # Cho phep chay thu cong tren GitHub
+
+jobs:
+  build-windows:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore MinetSetup.csproj
+
+      - name: Publish Windows x64 EXE
+        run: |
+          dotnet publish MinetSetup.csproj \
+            -c Release \
+            -r win-x64 \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:EnableCompressionInSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -o ./output
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MinetSetup-Windows
+          path: ./output/MinetSetup.exe
+          retention-days: 30
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ./output/MinetSetup.exe
