@@ -47,13 +47,13 @@ if not exist "%TEMP%\minet_setup.sh" (
     exit /b 1
 )
 
-:: Uu tien WSL - kiem tra bang wsl.exe truc tiep
+:: Kiem tra WSL
 echo [INFO] Kiem tra WSL...
 wsl.exe -e bash -c "echo wsl_ok" 2>nul | findstr "wsl_ok" >nul
 if not errorlevel 1 (
-    echo [INFO] Dung WSL bash...
+    echo [INFO] Dung WSL bash (root)...
     for /f "delims=" %%W in ('wsl.exe wslpath -a "%TEMP%\minet_setup.sh"') do set WSL_PATH=%%W
-    wsl.exe bash "!WSL_PATH!"
+    wsl.exe -u root bash "!WSL_PATH!"
     goto :done
 )
 
@@ -78,7 +78,6 @@ exit /b 1
 
 :found_bash
 echo [INFO] Dung Git bash: !BASH_EXE!
-echo [WARN] Neu loi permission, script can chay trong WSL.
 !BASH_EXE! "%TEMP%\minet_setup.sh"
 
 :done
