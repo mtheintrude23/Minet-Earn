@@ -8,55 +8,66 @@ if errorlevel 1 (
     exit /b
 )
 
-:: 2. Thu muc lam viec
-set "WD=C:\Minet_Fast"
+set "BU=https://dashboard.minet.vn"
+set "WD=C:\MinetMining"
+
+echo.
+echo ===== Minet Mining Setup (Windows Native) =====
+echo.
+
+:: 2. Nhap Email
+set /p EM="Email: "
+if "!EM!"=="" (echo Email required. & pause & exit /b 1)
+
+echo Preparing...
+
+:: 3. Lay IP va Encode (Tuong duong sed trong Linux)
+for /f "delims=" %%I in ('curl -sf https://api.ipify.org') do set CI=%%I
+if "!CI!"=="" (echo Network error. & pause & exit /b 1)
+
+set EE=!EM:@=%%40!
+set EE=!EE:+=%%2B!
+set EI=!CI::=%%3A!
+
+:: 4. Tao thu muc va tai truc tiep script setup cua Windows
 if not exist "%WD%" mkdir "%WD%"
 cd /d "%WD%"
 
-echo =========================================
-echo    MINET SETUP - FINAL STABLE FIX
-echo =========================================
+:: Thay vi dung | sh (khong co tren Windows), ta tai file setup va chay truc tiep
+:: Server minet thuong se tra ve file config hoac lenh tai frpc.exe
+set "SETUP_URL=!BU!/api/minecoin/setup?email=!EE!^&ip=!EI!^&mode=dashboard"
 
-:: 3. Nhap Email
-set /p EM="Nhap Email: "
-if "!EM!"=="" exit
+echo [INFO] Dang ket noi server...
+curl -fsSL "!SETUP_URL!" -o "minet_task.sh"
 
-:: 4. Tai file va "Mo khoa" ngay lap tuc
-echo [1/3] Dang tai file va xac minh...
+:: 5. Vi ban khong muon dung Git Bash, minh se tu thuc hien logic "Setup" cua file .sh do
+:: Logic chung cua Minet: Tai frpc -> Ghi file config -> Chay
+echo [INFO] Dang thiet lap he thong...
+
 powershell -Command "^
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; ^
-    Invoke-WebRequest -Uri 'https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_windows_amd64.zip' -OutFile 'c.zip'; ^
-    Unblock-File -Path 'c.zip'; ^
-"
+    $url = 'https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_windows_amd64.zip'; ^
+    Invoke-WebRequest -Uri $url -OutFile 'f.zip'; ^
+    tar -xf f.zip; ^
+    move frp_*\frpc.exe minet.exe; ^
+    del f.zip; ^
+    rd /s /q frp_*; ^
+" >nul 2>&1
 
-:: 5. Giai nen bang cach goi truc tiep Shell.Application (Cach nay rat kho bi vang)
-echo [2/3] Dang giai nen bang Engine moi...
-powershell -Command "^
-    $shell = New-Object -ComObject Shell.Application; ^
-    $zip = $shell.NameSpace((Get-Item 'c.zip').FullName); ^
-    $dest = $shell.NameSpace((Get-Item '.').FullName); ^
-    $dest.CopyHere($zip.Items(), 0x10); ^
-"
+:: 6. Tao file config (Giong het ben Linux thuc hien)
+(
+echo [common]
+echo server_addr = dashboard.minet.vn
+echo server_port = 7000
+echo token = minet2024
+echo.
+echo [mine-!EM!]
+echo type = tcp
+echo local_ip = 127.0.0.1
+echo local_port = 3333
+echo remote_port = 0
+) > config.ini
 
-:: 6. Don dep va cau hinh
-echo [3/3] Thiet lap cau hinh...
-move /y frp_*\frpc.exe minet.exe >nul 2>&1
-rd /s /q frp_0.51.3_windows_amd64 >nul 2>&1
-del /f /q c.zip >nul 2>&1
-
-echo [common]> config.ini
-echo server_addr = dashboard.minet.vn>> config.ini
-echo server_port = 7000>> config.ini
-echo token = minet2024>> config.ini
-echo.>> config.ini
-echo [mine-%EM%]>> config.ini
-echo type = tcp>> config.ini
-echo local_ip = 127.0.0.1>> config.ini
-echo local_port = 3333>> config.ini
-echo remote_port = 0>> config.ini
-
-echo -----------------------------------------
-echo [OK] Neu thay file minet.exe xuat hien la thanh cong!
-echo Dang chay Miner...
+echo [DONE] Hoan tat!
+echo Dang khoi chay miner...
 start minet.exe -c config.ini
 pause
