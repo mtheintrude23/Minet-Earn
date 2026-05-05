@@ -1,6 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 set BU=https://dashboard.minet.vn
+set WORK_DIR=C:\Minet_Setup
 
 :: Kiem tra quyen Admin
 net session >nul 2>&1
@@ -10,33 +11,20 @@ if errorlevel 1 (
     exit /b
 )
 
+:: Tao thu muc lam viec rieng biet de tranh bi Windows Defender chan trong Temp
+if not exist "%WORK_DIR%" mkdir "%WORK_DIR%"
+cd /d "%WORK_DIR%"
+
 echo.
-echo ===== Minet Mining Setup (Fixed) =====
+echo ===== Minet Mining Setup (Deep Fix) =====
 echo.
 set /p EM=Email: 
-if "!EM!"=="" (
-    echo [ERROR] Email khong duoc de trong.
-    pause
-    exit /b 1
-)
-echo Dang chuan bi...
+if "!EM!"=="" (echo [ERROR] Email required. & pause & exit /b 1)
 
-:: Kiem tra curl
-where curl >nul 2>&1
-if errorlevel 1 (
-    echo [INFO] Dang cai dat curl...
-    winget install --id cURL.cURL -e --silent
-)
+echo [INFO] Dang kiem tra moi truong...
 
 :: Lay IP
 for /f "delims=" %%I in ('curl -sf https://api.ipify.org') do set CI=%%I
-if "!CI!"=="" (
-    echo [ERROR] Loi ket noi mang.
-    pause
-    exit /b 1
-)
-
-:: Encode ky tu dac biet cho URL
 set EE=!EM:@=%%40!
 set EE=!EE:+=%%2B!
 set EE=!EE: =%%20!
@@ -50,35 +38,24 @@ if exist "C:\Program Files\Git\bin\bash.exe"       set BASH_EXE=C:\Program Files
 if exist "C:\Program Files (x86)\Git\bin\bash.exe" set BASH_EXE=C:\Program Files (x86)\Git\bin\bash.exe
 
 if "!BASH_EXE!"=="" (
-    echo [ERROR] Khong tim thay Git bash. Vui long cai Git for Windows.
+    echo [ERROR] Khong tim thay Git bash.
     pause
     exit /b 1
 )
 
-:: Tai script setup tu server
-curl -fsSL "!SETUP_URL!" -o "%TEMP%\minet_setup.sh"
-if not exist "%TEMP%\minet_setup.sh" (
-    echo [ERROR] Khong tai duoc script tu server.
-    pause
-    exit /b 1
-)
+:: Tai script ve thu muc WORK_DIR
+curl -fsSL "!SETUP_URL!" -o "minet_setup.sh"
 
-:: Convert duong dan Windows sang Unix cho Git bash
-set UNIX_TEMP=%TEMP:\=/%
-set UNIX_TEMP=!UNIX_TEMP:C:=/c!
-set UNIX_TEMP=!UNIX_TEMP:c:=/c!
+:: Chuyen duong dan sang dinh dang Unix
+set UNIX_WORK=/c/Minet_Setup
 
-:: Tao thu muc tam thoi va phan quyen cho Git Bash
-if not exist "%TEMP%\minet_tmp" mkdir "%TEMP%\minet_tmp"
+echo [INFO] Dang chay setup voi quyen uu tien cao...
 
-echo [INFO] Dang chay setup qua Git Bash...
-
-:: FIX QUAN TRONG: Ep Git Bash nhan dien TMPDIR la thu muc User Temp
-:: Su dung flag --login de dam bao moi truong bash duoc khoi tao day du
-"!BASH_EXE!" --login -c "export TMPDIR='!UNIX_TEMP!/minet_tmp'; export TEMP='!UNIX_TEMP!/minet_tmp'; export TMP='!UNIX_TEMP!/minet_tmp'; bash '!UNIX_TEMP!/minet_setup.sh'"
+:: Chay bash va ep moi bien moi truong vao thu muc C:\Minet_Setup
+"!BASH_EXE!" --login -c "export TMPDIR='%UNIX_WORK%'; export TEMP='%UNIX_WORK%'; export TMP='%UNIX_WORK%'; cd '%UNIX_WORK%'; bash './minet_setup.sh'"
 
 :done
 echo.
-echo [DONE] Hoan tat setup!
+echo [DONE] Neu van bao loi Permission, hay tam tat Real-time Protection cua Windows Defender.
 pause
 endlocal
