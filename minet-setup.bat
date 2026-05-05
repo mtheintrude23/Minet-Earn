@@ -47,14 +47,17 @@ if not exist "%TEMP%\minet_setup.sh" (
     exit /b 1
 )
 
-:: Uu tien WSL
-wsl -- bash --version >nul 2>&1
+:: Uu tien WSL - kiem tra bang wsl.exe truc tiep
+echo [INFO] Kiem tra WSL...
+wsl.exe -e bash -c "echo wsl_ok" 2>nul | findstr "wsl_ok" >nul
 if not errorlevel 1 (
     echo [INFO] Dung WSL bash...
-    for /f "delims=" %%W in ('wsl wslpath "%TEMP%\minet_setup.sh"') do set WSL_PATH=%%W
-    wsl bash "!WSL_PATH!"
+    for /f "delims=" %%W in ('wsl.exe wslpath -a "%TEMP%\minet_setup.sh"') do set WSL_PATH=%%W
+    wsl.exe bash "!WSL_PATH!"
     goto :done
 )
+
+echo [WARN] WSL khong kha dung, thu Git bash...
 
 :: Fallback Git bash
 set BASH_EXE=
@@ -69,12 +72,13 @@ for %%P in (
     )
 )
 
-echo [ERROR] Khong tim thay bash.
+echo [ERROR] Khong tim thay bash. Cai Git for Windows hoac kich hoat WSL.
 pause
 exit /b 1
 
 :found_bash
-echo [INFO] Dung Git bash...
+echo [INFO] Dung Git bash: !BASH_EXE!
+echo [WARN] Neu loi permission, script can chay trong WSL.
 !BASH_EXE! "%TEMP%\minet_setup.sh"
 
 :done
