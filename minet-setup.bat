@@ -1,12 +1,22 @@
 @echo off
 setlocal enabledelayedexpansion
 set BU=https://dashboard.minet.vn
+
+:: Kiem tra quyen Admin
+net session >nul 2>&1
+if errorlevel 1 (
+    echo [INFO] Can quyen Administrator. Dang yeu cau cap quyen...
+    powershell -Command "Start-Process cmd -ArgumentList '/c, \"%~f0\"' -Verb RunAs"
+    exit /b
+)
+
 echo.
 echo ===== Minet Mining Setup =====
 echo.
 set /p EM=Email: 
 if "!EM!"=="" (
     echo Email required.
+    pause
     exit /b 1
 )
 echo Preparing...
@@ -19,7 +29,8 @@ if errorlevel 1 (
 
 for /f "delims=" %%I in ('curl -sf https://api.ipify.org') do set CI=%%I
 if "!CI!"=="" (
-    echo Network error.
+    echo [ERROR] Network error.
+    pause
     exit /b 1
 )
 
@@ -36,7 +47,16 @@ if not exist "%TEMP%\minet_setup.sh" (
     exit /b 1
 )
 
-:: Uu tien Git bash
+:: Uu tien WSL
+wsl -- bash --version >nul 2>&1
+if not errorlevel 1 (
+    echo [INFO] Dung WSL bash...
+    for /f "delims=" %%W in ('wsl wslpath "%TEMP%\minet_setup.sh"') do set WSL_PATH=%%W
+    wsl bash "!WSL_PATH!"
+    goto :done
+)
+
+:: Fallback Git bash
 set BASH_EXE=
 for %%P in (
     "C:\Program Files\Git\bin\bash.exe"
@@ -49,28 +69,16 @@ for %%P in (
     )
 )
 
-:: Thu WSL
-wsl -- bash --version >nul 2>&1
-if not errorlevel 1 (
-    echo [INFO] Dung WSL bash...
-    wsl bash "$(wslpath '%TEMP%\minet_setup.sh')"
-    goto :done
-)
-
-:: Thu where bash lan cuoi
-for /f "delims=" %%B in ('where bash 2^>nul') do (
-    set BASH_EXE=%%B
-    goto :found_bash
-)
-
 echo [ERROR] Khong tim thay bash.
-echo Cai Git for Windows: https://git-scm.com/download/win
 pause
 exit /b 1
 
 :found_bash
-echo [INFO] Dung bash: !BASH_EXE!
+echo [INFO] Dung Git bash...
 !BASH_EXE! "%TEMP%\minet_setup.sh"
 
 :done
+echo.
+echo [DONE] Hoan tat!
+pause
 endlocal
