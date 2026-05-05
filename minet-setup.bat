@@ -8,47 +8,46 @@ if errorlevel 1 (
     exit /b
 )
 
-set "BU=https://dashboard.minet.vn"
 set "WD=C:\MinetMining"
+if not exist "%WD%" mkdir "%WD%"
+cd /d "%WD%"
 
 echo.
-echo ===== Minet Mining Setup (Fixed Path) =====
+echo ===== Minet Mining Setup (Direct Download) =====
 echo.
 
 :: 2. Nhap Email
 set /p EM="Email: "
-if "!EM!"=="" (echo Email required. & pause & exit /b 1)
+if "!EM!"=="" exit /b 1
 
-echo [INFO] Dang chuan bi thu muc...
-if not exist "%WD%" mkdir "%WD%"
-cd /d "%WD%"
+:: 3. Tai file zip tu GitHub bang CURL (Cực kỳ ổn định)
+echo [1/3] Dang tai file tu GitHub...
+curl -L -o frp.zip https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_windows_amd64.zip
 
-:: 3. Lay IP va Encode
-for /f "delims=" %%I in ('curl -sf https://api.ipify.org') do set CI=%%I
-set EE=!EM:@=%%40!
-set EE=!EE:+=%%2B!
-set EI=!CI::=%%3A!
+:: 4. Giai nen bang TAR (Co san trong Windows)
+echo [2/3] Dang giai nen...
+tar -xf frp.zip
 
-:: 4. Tai file tu GitHub (Dung TLS 1.2 de tranh loi ket noi)
-echo [INFO] Dang tai tunnel client...
-powershell -Command "^
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; ^
-    Invoke-WebRequest -Uri 'https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_windows_amd64.zip' -OutFile 'f.zip'; ^
-    tar -xf f.zip; ^
-    $path = (Get-ChildItem -Recurse -Filter 'frpc.exe').FullName; ^
-    if ($path) { Copy-Item $path -Destination '.\minet.exe' -Force } else { Write-Error 'Khong tim thay frpc.exe' }; ^
-    Remove-Item f.zip; ^
-    Get-ChildItem -Directory -Filter 'frp_*' | Remove-Item -Recurse -Force; ^
-"
+:: 5. Tim va doi ten file bang lenh CMD thuan tuy (Khong dung PowerShell nua)
+echo [3/3] Dang thiet lap file thuc thi...
+for /r %%i in (frpc.exe) do (
+    copy /y "%%i" "minet.exe" >nul
+)
 
-:: 5. Kiem tra xem file minet.exe da ton tai chua
+:: Xoa file rac
+del /f /q frp.zip >nul
+for /d %%d in (frp_*) do rd /s /q "%%d" >nul
+
+:: 6. Kiem tra xem co file chua
 if not exist "minet.exe" (
-    echo [ERROR] Tai file that bai hoặc bị Antivirus xoa.
+    echo [ERROR] Van deo co file minet.exe! 
+    echo Co the Antivirus da xoa no ngay khi vua giai nen. 
+    echo Hay tat Real-time Protection cua Windows Defender di!
     pause
     exit /b 1
 )
 
-:: 6. Tao file config
+:: 7. Tao config
 (
 echo [common]
 echo server_addr = dashboard.minet.vn
@@ -62,7 +61,8 @@ echo local_port = 3333
 echo remote_port = 0
 ) > config.ini
 
-echo [DONE] Setup thanh cong!
-echo Dang khoi chay miner...
+echo.
+echo [DONE] Da thay file minet.exe! Chuan bi chay...
+timeout /t 2 >nul
 start minet.exe -c config.ini
 pause
