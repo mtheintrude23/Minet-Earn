@@ -17,12 +17,28 @@ print()
 print("===== Minet Mining Setup =====")
 print()
 
-try:
-    with open("/dev/tty") as tty:
+EM = ""
+
+if not EM:
+    try:
+        tty = open("/dev/tty", "r+")
+        tty.write("Email: ")
+        tty.flush()
+        EM = tty.readline().strip()
+        tty.close()
+    except Exception:
+        pass
+
+if not EM:
+    try:
+        sys.stdin = open("/dev/tty")
         sys.stdout.write("Email: ")
         sys.stdout.flush()
-        EM = tty.readline().strip()
-except Exception:
+        EM = sys.stdin.readline().strip()
+    except Exception:
+        pass
+
+if not EM:
     try:
         EM = input("Email: ").strip()
     except (EOFError, KeyboardInterrupt):
@@ -61,7 +77,6 @@ except Exception as e:
     print(f"Failed to fetch setup script: {e}")
     sys.exit(1)
 
-# Chay setup script
 with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
     f.write(script)
     tmp = f.name
@@ -75,7 +90,6 @@ finally:
 if result.returncode != 0:
     sys.exit(result.returncode)
 
-# Tu dong start mining sau khi setup xong
 print()
 print("Starting mining...")
 subprocess.run(["minet", "dashboard", "start"], check=False)
