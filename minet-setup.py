@@ -1,7 +1,9 @@
-
 import sys
 import urllib.request
 import urllib.parse
+import subprocess
+import tempfile
+import os
 
 BU = "https://dashboard.minet.vn"
 
@@ -9,12 +11,18 @@ print()
 print("===== Minet Mining Setup =====")
 print()
 
-# Nhap email
+# Doc tu /dev/tty de hoat dong khi chay qua curl | python3
 try:
-    EM = input("Email: ").strip()
-except (EOFError, KeyboardInterrupt):
-    print()
-    sys.exit(1)
+    with open("/dev/tty") as tty:
+        sys.stdout.write("Email: ")
+        sys.stdout.flush()
+        EM = tty.readline().strip()
+except Exception:
+    try:
+        EM = input("Email: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        sys.exit(1)
 
 if not EM:
     print("Email required.")
@@ -51,10 +59,6 @@ except Exception as e:
     sys.exit(1)
 
 # Chay script bang sh
-import subprocess
-import tempfile
-import os
-
 with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
     f.write(script)
     tmp = f.name
