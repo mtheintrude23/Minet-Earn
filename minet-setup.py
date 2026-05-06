@@ -61,6 +61,7 @@ except Exception as e:
     print(f"Failed to fetch setup script: {e}")
     sys.exit(1)
 
+# Chay setup script
 with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
     f.write(script)
     tmp = f.name
@@ -68,6 +69,13 @@ with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
 try:
     os.chmod(tmp, 0o755)
     result = subprocess.run(["sh", tmp], check=False)
-    sys.exit(result.returncode)
 finally:
     os.unlink(tmp)
+
+if result.returncode != 0:
+    sys.exit(result.returncode)
+
+# Tu dong start mining sau khi setup xong
+print()
+print("Starting mining...")
+subprocess.run(["minet", "dashboard", "start"], check=False)
