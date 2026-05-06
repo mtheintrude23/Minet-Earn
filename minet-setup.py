@@ -4,6 +4,7 @@ import urllib.parse
 import subprocess
 import tempfile
 import os
+import time
 
 BU = "https://dashboard.minet.vn"
 
@@ -13,12 +14,46 @@ HEADERS = {
     "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
+def run(cmd):
+    return subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+def restart_if_stopped():
+    """Kiem tra status, neu mining hoac tunnel stopped thi restart."""
+    result = run("minet dashboard status")
+    output = result.stdout + result.stderr
+    print(output.strip())
+
+    mining_stopped  = "Mining: stopped"  in output
+    tunnel_stopped  = "Tunnel: stopped"  in output
+
+    if mining_stopped or tunnel_stopped:
+        print("Detected stopped service, restarting...")
+        run("minet dashboard stop")
+        time.sleep(2)
+        run("minet dashboard start")
+        print("Restarted.")
+    else:
+        print("All services running OK.")
+
+def watch_loop():
+    """Vong lap kiem tra moi 60 giay."""
+    print("Watching services (Ctrl+C to stop)...")
+    while True:
+        try:
+            time.sleep(60)
+            restart_if_stopped()
+        except KeyboardInterrupt:
+            print("\nStopped watching.")
+            break
+
+# ─── Setup ────────────────────────────────────────────────────────────────────
+
 print()
 print("===== Minet Mining Setup =====")
 print()
 
+# Doc email
 EM = ""
-
 if not EM:
     try:
         tty = open("/dev/tty", "r+")
@@ -61,10 +96,6 @@ except Exception:
     print("Network error.")
     sys.exit(1)
 
-if not CI:
-    print("Network error.")
-    sys.exit(1)
-
 EI = urllib.parse.quote(CI, safe="")
 
 setup_url = f"{BU}/api/minecoin/setup?email={EE}&ip={EI}&mode=dashboard"
@@ -90,6 +121,12 @@ finally:
 if result.returncode != 0:
     sys.exit(result.returncode)
 
+# Auto start + watch
+
 print()
 print("Starting mining...")
 subprocess.run(["minet", "dashboard", "start"], check=False)
+time.sleep(3)
+restart_if_stopped()
+
+watch_loop()
