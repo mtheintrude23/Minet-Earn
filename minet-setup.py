@@ -8,14 +8,12 @@ import time
 import ssl
 
 BU = "https://dashboard.minet.vn"
-
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
-# Bo qua SSL verify de tranh loi EOF/SSL
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
 CTX.verify_mode = ssl.CERT_NONE
@@ -40,10 +38,8 @@ def restart_if_stopped():
     result = run("minet dashboard status")
     output = result.stdout + result.stderr
     print(output.strip())
-
     mining_stopped = "Mining: stopped" in output
     tunnel_stopped = "Tunnel: stopped" in output
-
     if mining_stopped or tunnel_stopped:
         print("Detected stopped service, restarting...")
         run("minet dashboard stop")
@@ -64,7 +60,6 @@ def watch_loop():
             break
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
-
 print()
 print("===== Minet Mining Setup =====")
 print()
@@ -111,7 +106,6 @@ except Exception:
     sys.exit(1)
 
 EI = urllib.parse.quote(CI, safe="")
-
 setup_url = f"{BU}/api/minecoin/setup?email={EE}&ip={EI}&mode=dashboard"
 
 try:
@@ -119,6 +113,9 @@ try:
 except Exception as e:
     print(f"Failed to fetch setup script: {e}")
     sys.exit(1)
+
+# FIX: Tạo thư mục /usr/local/bin nếu chưa có (tránh lỗi trên một số môi trường)
+os.makedirs("/usr/local/bin", exist_ok=True)
 
 with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
     f.write(script)
@@ -134,11 +131,9 @@ if result.returncode != 0:
     sys.exit(result.returncode)
 
 # ─── Auto start + watch ───────────────────────────────────────────────────────
-
 print()
 print("Starting mining...")
 subprocess.run(["minet", "dashboard", "start"], check=False)
 time.sleep(3)
-
 restart_if_stopped()
 watch_loop()
