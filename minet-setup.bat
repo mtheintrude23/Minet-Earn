@@ -1,6 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
 
+:: ============================================================
+::  Minet Mining Launcher - Cloudflare Tunnel Edition
+:: ============================================================
+
 :: 1. Quyền Admin
 net session >nul 2>&1
 if errorlevel 1 (
@@ -25,24 +29,52 @@ set "EE=!EM:@=%%40!"
 set "EE=!EE:+=%%2B!"
 set "EI=!CI::=%%3A!"
 
-:: 4. Tải file setup gốc của server về (Thay vì chạy thẳng, ta lưu lại để xem)
-curl -fsSL "!BU!/api/minecoin/setup?email=!EE!&ip=!EI!&mode=dashboard" -o "server_script.txt"
-
+:: 4. Lấy config từ server
+curl -fsSL "!BU!/api/minecoin/setup?email=!EE!&ip=!EI!&mode=dashboard" -o "server_config.txt"
 echo [INFO] Da tai xong thong so.
 echo ---------------------------------------
-:: Hien thi noi dung server tra ve de ban kiem tra xem co dung config ko
-type server_script.txt
+type server_config.txt
 echo ---------------------------------------
 
-:: 5. Tai frpc neu chua co
-if not exist "frpc.exe" (
-    echo [INFO] Dang tai frpc...
-    curl -L -o f.zip https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_windows_amd64.zip
-    tar -xf f.zip
-    for /r %%i in (frpc.exe) do copy /y "%%i" "frpc.exe" >nul
-    del f.zip
+:: 5. Đọc token và port từ server_config.txt
+::    (server trả về 2 dòng: TOKEN=xxx và PORT=xxx)
+for /f "tokens=1,2 delims==" %%A in (server_config.txt) do (
+    if /i "%%A"=="TOKEN" set "CF_TOKEN=%%B"
+    if /i "%%A"=="PORT"  set "CF_PORT=%%B"
 )
 
+if "!CF_TOKEN!"=="" (
+    echo [ERROR] Khong doc duoc TOKEN tu server. Kiem tra lai server_config.txt
+    pause
+    exit /b 1
+)
+if "!CF_PORT!"=="" (
+    echo [ERROR] Khong doc duoc PORT tu server. Kiem tra lai server_config.txt
+    pause
+    exit /b 1
+)
+
+:: 6. Tải cloudflared nếu chưa có
+if not exist "cloudflared.exe" (
+    echo [INFO] Dang tai cloudflared...
+    curl -L -o cloudflared.exe https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe
+    if errorlevel 1 (
+        echo [ERROR] Tai cloudflared that bai. Kiem tra ket noi mang.
+        pause
+        exit /b 1
+    )
+    echo [INFO] Tai cloudflared thanh cong.
+)
+
+:: 7. Chạy tunnel
 echo.
-echo [DONE] Bay gio ban hay copy cai doan config trong 'server_script.txt' vao file 'frpc.ini' roi chay nhe.
+echo [INFO] Dang khoi dong Cloudflare Tunnel...
+echo [INFO] Token : !CF_TOKEN!
+echo [INFO] Port  : !CF_PORT!
+echo.
+
+start "Cloudflare Tunnel" cloudflared.exe tunnel --no-autoupdate run --token "!CF_TOKEN!"
+
+echo [DONE] Tunnel da duoc khoi dong trong cua so moi.
+echo        Server dang duoc expose qua Cloudflare tai port !CF_PORT!.
 pause
