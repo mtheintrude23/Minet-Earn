@@ -406,6 +406,18 @@ using System.Text;
 using System.Threading;
 
 public class ProxyHelper {
+    public static void RunServer(object listenerObj) {
+        var listener = (System.Net.Sockets.TcpListener)listenerObj;
+        while (true) {
+            try {
+                System.Net.Sockets.TcpClient client = listener.AcceptTcpClient();
+                Thread t = new Thread(new ParameterizedThreadStart(ProxyHelper.HandleClient));
+                t.IsBackground = true;
+                t.Start(client);
+            } catch {}
+        }
+    }
+
     public static void Pipe(object state) {
         object[] args = (object[])state;
         Stream src = (Stream)args[0];
@@ -480,15 +492,7 @@ public class ProxyHelper {
 }
 "@
 
-while ($true) {
-    try {
-        $client = $listener.AcceptTcpClient()
-        $ts = [System.Threading.ParameterizedThreadStart]([ProxyHelper]::HandleClient)
-        $t  = New-Object System.Threading.Thread($ts)
-        $t.IsBackground = $true
-        $t.Start($client) | Out-Null
-    } catch {}
-}
+[ProxyHelper]::RunServer($listener)
 '@
 
 function Start-BuiltinProxy([int]$localPort) {
