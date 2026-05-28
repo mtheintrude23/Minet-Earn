@@ -358,26 +358,40 @@ function Read-ProxySetting([string]$default = "") {
 function Start-BgProcess([string]$name, [string[]]$cmd, [string]$logPath) {
     $logDir = Split-Path $logPath
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
-    if (-not (Test-Path $logPath)) { "" | Set-Content $logPath -Encoding UTF8 }
 
-    # Tao wrapper script de merge stderr -> stdout -> log file
-    $innerExe  = $cmd[0]
-    $innerArgs = ""
-    if ($cmd.Count -gt 1) {
-        $parts = $cmd[1..($cmd.Count-1)] | ForEach-Object {
-            if ($_ -match '\s') { "`"$_`"" } else { $_ }
+    $exe = $cmd[0]
+    $argList = if ($cmd.Count -gt 1) { $cmd[1..($cmd.Count - 1)] } else { @() }
+
+    # Build arg string voi quoting dung cho exe co dau cach
+    $argStr = ($argList | ForEach-Object {
+        if ($_ -match '[\s"]') { "`"$($_ -replace '"','\"')`"" } else { $_ }
+    }) -join ' '
+
+    $si = New-Object System.Diagnostics.ProcessStartInfo
+    $si.FileName               = $exe
+    $si.Arguments              = $argStr
+    $si.UseShellExecute        = $false
+    $si.CreateNoWindow         = $true
+    $si.RedirectStandardOutput = $true
+    $si.RedirectStandardError  = $true
+
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $si
+
+    # Ghi stdout+stderr vao log qua event (khong dung Thread)
+    $lp = $logPath
+    $outHandler = [System.Diagnostics.DataReceivedEventHandler]{
+        param($s, $e)
+        if ($null -ne $e.Data) {
+            try { Add-Content -Path $lp -Value $e.Data -Encoding UTF8 } catch {}
         }
-        $innerArgs = $parts -join ' '
     }
+    $proc.add_OutputDataReceived($outHandler)
+    $proc.add_ErrorDataReceived($outHandler)
 
-    $wrapperPath = Join-Path $MINET_ROOT "_run_$name.cmd"
-    $wrapContent = "@echo off`r`n`"$innerExe`" $innerArgs >> `"$logPath`" 2>&1`r`n"
-    Set-Content $wrapperPath -Value $wrapContent -Encoding ASCII
-
-    $proc = Start-Process -FilePath "cmd.exe" `
-        -ArgumentList "/c `"$wrapperPath`"" `
-        -WindowStyle Hidden `
-        -PassThru
+    $proc.Start() | Out-Null
+    $proc.BeginOutputReadLine()
+    $proc.BeginErrorReadLine()
 
     Save-Pid $name $proc.Id
     return $proc.Id
