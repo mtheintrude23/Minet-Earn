@@ -179,6 +179,10 @@ function Invoke-HttpRequest([string]$url, [string]$body, [string]$contentType, [
         }
     }
     $resp = Invoke-WebRequest @params
+    # PS5: .Content co the la byte[], PS7 la string
+    if ($resp.Content -is [byte[]]) {
+        return [System.Text.Encoding]::UTF8.GetString($resp.Content)
+    }
     return $resp.Content
 }
 
@@ -220,7 +224,11 @@ function Get-SetupScript([string]$email) {
 }
 
 function Get-EmbeddedFiles([string]$setupScript) {
-    # Unwrap outer base64 | sh wrapper
+    # --- Debug: luu raw script de kiem tra ---
+    $dbg = Join-Path $env:TEMP "minet_setup_debug.sh"
+    Set-Content $dbg $setupScript -Encoding UTF8
+
+    # Unwrap outer base64 | sh wrapper (nhieu lop)
     $unwrapRx = [regex]'(?ms)printf\s+"%[bs]"\s+"([A-Za-z0-9+/=\\\n\s]+?)"\s*\|\s*base64\s+-d\s*\|\s*sh'
     for ($i = 0; $i -lt 5; $i++) {
         $m = $unwrapRx.Match($setupScript)
@@ -232,17 +240,63 @@ function Get-EmbeddedFiles([string]$setupScript) {
         } catch { break }
     }
 
-    $fileRx = [regex]'(?ms)printf\s+"%[bs]"\s+"([A-Za-z0-9+/=\\\n\s]+?)"\s*\|\s*base64\s+-d\s*>\s*("?[^"\n]+?"?)\s*$'
     $out = @{}
+
+    # Pattern 1: printf "%b" "..." | base64 -d > path
+    $fileRx = [regex]'(?ms)printf\s+"%[bs]"\s+"([A-Za-z0-9+/=\\\n\s]+?)"\s*\|\s*base64\s+-d\s*>\s*("?[^"\n]+?"?)\s*(?:\n|$)'
     foreach ($m in $fileRx.Matches($setupScript)) {
         try {
             $b64  = $m.Groups[1].Value -replace '\\n|\s',''
             $data = [Convert]::FromBase64String($b64)
             $path = $m.Groups[2].Value.Trim().Trim('"')
-            $path = $path -replace '\$MR', $MINET_ROOT -replace '\$PREFIX', ''
+            $path = $path -replace '\$MR', $MINET_ROOT -replace '\$PREFIX', '' -replace '~', $HOME
             $out[$path] = $data
         } catch {}
     }
+
+    # Pattern 2: echo "..." | base64 -d > path
+    $echoRx = [regex]'(?ms)echo\s+"([A-Za-z0-9+/=\s]+?)"\s*\|\s*base64\s+-d\s*>\s*("?[^"\n]+?"?)\s*(?:\n|$)'
+    foreach ($m in $echoRx.Matches($setupScript)) {
+        try {
+            $b64  = $m.Groups[1].Value -replace '\s',''
+            $data = [Convert]::FromBase64String($b64)
+            $path = $m.Groups[2].Value.Trim().Trim('"')
+            $path = $path -replace '\$MR', $MINET_ROOT -replace '\$PREFIX', '' -replace '~', $HOME
+            $out[$path] = $data
+        } catch {}
+    }
+
+    # Pattern 3: cat > path << 'EOF' ... EOF  (heredoc plain text)
+    $heredocRx = [regex]'(?ms)cat\s*>\s*("?[^"\n]+?"?)\s*<<\s*[''"]?EOF[''"]?\s*\n(.*?)\nEOF'
+    foreach ($m in $heredocRx.Matches($setupScript)) {
+        try {
+            $path = $m.Groups[1].Value.Trim().Trim('"')
+            $path = $path -replace '\$MR', $MINET_ROOT -replace '\$PREFIX', '' -replace '~', $HOME
+            $data = [System.Text.Encoding]::UTF8.GetBytes($m.Groups[2].Value)
+            $out[$path] = $data
+        } catch {}
+    }
+
+    # Pattern 4: base64 decode vao bien roi ghi file
+    $varRx = [regex]'(?ms)([A-Za-z_][A-Za-z0-9_]*)=["'']([A-Za-z0-9+/=\s]+?)["'']\s*\n[^\n]*echo[^\n]*\$\1[^\n]*base64[^\n]*>\s*("?[^"\n]+?"?)'
+    foreach ($m in $varRx.Matches($setupScript)) {
+        try {
+            $b64  = $m.Groups[2].Value -replace '\s',''
+            $data = [Convert]::FromBase64String($b64)
+            $path = $m.Groups[3].Value.Trim().Trim('"')
+            $path = $path -replace '\$MR', $MINET_ROOT -replace '\$PREFIX', '' -replace '~', $HOME
+            $out[$path] = $data
+        } catch {}
+    }
+
+    if ($out.Count -eq 0) {
+        # In 20 dong dau de debug
+        $lines = $setupScript -split "`n" | Select-Object -First 20
+        Write-Host "  [DEBUG] Script tu server (20 dong dau):" -ForegroundColor Yellow
+        $lines | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+        Write-Host "  [DEBUG] Da luu day du vao: $dbg" -ForegroundColor Yellow
+    }
+
     return $out
 }
 
