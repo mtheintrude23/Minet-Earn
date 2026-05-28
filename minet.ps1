@@ -339,7 +339,6 @@ function Prompt-Email([string]$current = "") {
 
 function Prompt-Proxy([string]$default = "") {
     Write-Host ""
-    Write-Host "Proxy (cho API calls: fetch/heartbeat/update-ip, KHONG anh huong tunnel):"
     Write-Host "  - URL: socks5://host:port, http://user:pass@host:port, ..."
     Write-Host "  - Path toi file danh sach (mot dong mot URL)"
     Write-Host "  - Enter de khong dung proxy, 'none' de xoa proxy hien tai"
