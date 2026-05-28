@@ -360,43 +360,26 @@ function Start-BgProcess([string]$name, [string[]]$cmd, [string]$logPath) {
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
     if (-not (Test-Path $logPath)) { "" | Set-Content $logPath -Encoding UTF8 }
 
-    $si = New-Object System.Diagnostics.ProcessStartInfo
-    $si.FileName        = $cmd[0]
-    $si.UseShellExecute = $false
-    $si.CreateNoWindow  = $true
-    $si.WindowStyle     = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    $si.RedirectStandardOutput = $true
-    $si.RedirectStandardError  = $true
-
+    # Tao wrapper script de merge stderr -> stdout -> log file
+    $innerExe  = $cmd[0]
+    $innerArgs = ""
     if ($cmd.Count -gt 1) {
-        $argParts = $cmd[1..($cmd.Count-1)] | ForEach-Object {
+        $parts = $cmd[1..($cmd.Count-1)] | ForEach-Object {
             if ($_ -match '\s') { "`"$_`"" } else { $_ }
         }
-        $si.Arguments = $argParts -join ' '
+        $innerArgs = $parts -join ' '
     }
 
-    $proc = [System.Diagnostics.Process]::Start($si)
+    $wrapperPath = Join-Path $MINET_ROOT "_run_$name.cmd"
+    $wrapContent = "@echo off`r`n`"$innerExe`" $innerArgs >> `"$logPath`" 2>&1`r`n"
+    Set-Content $wrapperPath -Value $wrapContent -Encoding ASCII
+
+    $proc = Start-Process -FilePath "cmd.exe" `
+        -ArgumentList "/c `"$wrapperPath`"" `
+        -WindowStyle Hidden `
+        -PassThru
+
     Save-Pid $name $proc.Id
-
-    # Pipe output to log async
-    $lp = $logPath
-    foreach ($stream in @($proc.StandardOutput, $proc.StandardError)) {
-        $s = $stream
-        $t = New-Object System.Threading.Thread({
-            param($reader, $logFile)
-            try {
-                $sw = [System.IO.File]::AppendText($logFile)
-                while (-not $reader.EndOfStream) {
-                    $line = $reader.ReadLine()
-                    $sw.WriteLine($line)
-                    $sw.Flush()
-                }
-                $sw.Close()
-            } catch {}
-        })
-        $t.IsBackground = $true
-        $t.Start($s, $lp) | Out-Null
-    }
     return $proc.Id
 }
 
@@ -413,76 +396,95 @@ try {
     return
 }
 
-function Handle-Client($client) {
-    try {
-        $client.ReceiveTimeout = 30000
-        $ns  = $client.GetStream()
-        $buf = New-Object byte[] 4096
-        $sb  = New-Object System.Text.StringBuilder
-        $total = 0
-        do {
-            $n = $ns.Read($buf, 0, $buf.Length)
-            if ($n -le 0) { $client.Close(); return }
-            $sb.Append([System.Text.Encoding]::GetEncoding("Latin1").GetString($buf, 0, $n)) | Out-Null
-            $total += $n
-        } while ($sb.ToString().IndexOf("`r`n`r`n") -lt 0 -and $total -lt 16384)
+# Pipe hai stream voi nhau; moi huong chay tren thread rieng
+# Dung [System.Threading.ParameterizedThreadStart] de tranh ambiguous overload tren PS5
+Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
 
-        $raw       = $sb.ToString()
-        $firstLine = ($raw -split "`r`n")[0]
-        $parts     = $firstLine -split ' '
-        if ($parts.Count -lt 2) { $client.Close(); return }
-        $method    = $parts[0].ToUpper()
-        $target    = $parts[1]
-        $upstream  = $null
+public class ProxyHelper {
+    public static void Pipe(object state) {
+        object[] args = (object[])state;
+        Stream src = (Stream)args[0];
+        Stream dst = (Stream)args[1];
+        byte[] buf = new byte[65536];
+        try {
+            int n;
+            while ((n = src.Read(buf, 0, buf.Length)) > 0)
+                dst.Write(buf, 0, n);
+        } catch {}
+    }
 
-        if ($method -eq "CONNECT") {
-            $colon = $target.LastIndexOf(':')
-            if ($colon -lt 0) { $client.Close(); return }
-            $rHost = $target.Substring(0, $colon)
-            $rPort = [int]$target.Substring($colon + 1)
-            $upstream = New-Object System.Net.Sockets.TcpClient($rHost, $rPort)
-            $reply = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 Connection established`r`n`r`n")
-            $ns.Write($reply, 0, $reply.Length)
-        } else {
-            if ($raw -match '(?i)Host:\s*([^\r\n]+)') {
-                $hostHdr = $Matches[1].Trim()
-                $colon2  = $hostHdr.LastIndexOf(':')
-                if ($colon2 -gt 0) {
-                    $rHost = $hostHdr.Substring(0, $colon2)
-                    $rPort = [int]$hostHdr.Substring($colon2 + 1)
-                } else {
-                    $rHost = $hostHdr
-                    $rPort = 80
+    public static void HandleClient(object state) {
+        TcpClient client = (TcpClient)state;
+        try {
+            client.ReceiveTimeout = 30000;
+            NetworkStream ns = client.GetStream();
+            byte[] buf = new byte[4096];
+            StringBuilder sb = new StringBuilder();
+            int total = 0;
+            do {
+                int n = ns.Read(buf, 0, buf.Length);
+                if (n <= 0) return;
+                sb.Append(Encoding.GetEncoding("Latin1").GetString(buf, 0, n));
+                total += n;
+            } while (sb.ToString().IndexOf("\r\n\r\n") < 0 && total < 16384);
+
+            string raw = sb.ToString();
+            string[] lines = raw.Split(new string[]{"\r\n"}, 2, StringSplitOptions.None);
+            string[] parts = lines[0].Split(' ');
+            if (parts.Length < 2) return;
+            string method = parts[0].ToUpper();
+            string target = parts[1];
+
+            TcpClient upstream = null;
+            if (method == "CONNECT") {
+                int colon = target.LastIndexOf(':');
+                if (colon < 0) return;
+                string rHost = target.Substring(0, colon);
+                int rPort = int.Parse(target.Substring(colon + 1));
+                upstream = new TcpClient(rHost, rPort);
+                byte[] reply = Encoding.ASCII.GetBytes("HTTP/1.1 200 Connection established\r\n\r\n");
+                ns.Write(reply, 0, reply.Length);
+            } else {
+                int hi = raw.IndexOf("Host:", StringComparison.OrdinalIgnoreCase);
+                if (hi >= 0) {
+                    int end = raw.IndexOf("\r\n", hi);
+                    string hostHdr = raw.Substring(hi + 5, end - hi - 5).Trim();
+                    string rHost; int rPort;
+                    int colon2 = hostHdr.LastIndexOf(':');
+                    if (colon2 > 0) { rHost = hostHdr.Substring(0, colon2); rPort = int.Parse(hostHdr.Substring(colon2 + 1)); }
+                    else { rHost = hostHdr; rPort = 80; }
+                    upstream = new TcpClient(rHost, rPort);
+                    byte[] rawBytes = Encoding.GetEncoding("Latin1").GetBytes(raw);
+                    upstream.GetStream().Write(rawBytes, 0, rawBytes.Length);
                 }
-                $upstream = New-Object System.Net.Sockets.TcpClient($rHost, $rPort)
-                $rawBytes = [System.Text.Encoding]::GetEncoding("Latin1").GetBytes($raw)
-                $upstream.GetStream().Write($rawBytes, 0, $rawBytes.Length)
             }
-        }
 
-        if ($null -ne $upstream) {
-            $client.ReceiveTimeout = 0
-            $usns = $upstream.GetStream()
-            $done = $false
-            $t1 = New-Object System.Threading.Thread({
-                param($a, $b, [ref]$doneRef)
-                try { $a.CopyTo($b) } catch {}
-                $doneRef.Value = $true
-            })
-            $t1.IsBackground = $true
-            $t1.Start($usns, $ns, [ref]$done) | Out-Null
-            try { $ns.CopyTo($usns) } catch {}
-            $t1.Join(3000) | Out-Null
-            try { $upstream.Close() } catch {}
-        }
-    } catch {}
-    finally { try { $client.Close() } catch {} }
+            if (upstream != null) {
+                client.ReceiveTimeout = 0;
+                NetworkStream usns = upstream.GetStream();
+                Thread t1 = new Thread(new ParameterizedThreadStart(ProxyHelper.Pipe));
+                t1.IsBackground = true;
+                t1.Start(new object[]{ usns, ns });
+                try { ns.CopyTo(usns); } catch {}
+                t1.Join(3000);
+                try { upstream.Close(); } catch {}
+            }
+        } catch {}
+        finally { try { client.Close(); } catch {} }
+    }
 }
+"@
 
 while ($true) {
     try {
         $client = $listener.AcceptTcpClient()
-        $t = New-Object System.Threading.Thread({ param($c); Handle-Client $c })
+        $ts = [System.Threading.ParameterizedThreadStart]([ProxyHelper]::HandleClient)
+        $t  = New-Object System.Threading.Thread($ts)
         $t.IsBackground = $true
         $t.Start($client) | Out-Null
     } catch {}
